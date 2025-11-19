@@ -1,0 +1,11 @@
+[package]
+name = "tui-downloader"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ratatui = "^0.26"
+crossterm = "^0.27"
+reqwest = { version = "^0.12", features = ["stream"] }
+tokio = { version = "^1", features = ["full"] }
+futures = "^0.3"
