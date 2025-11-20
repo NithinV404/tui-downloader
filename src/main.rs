@@ -7,7 +7,7 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Style},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, Gauge, ListState, Paragraph},
 };
 use std::io;
 
@@ -17,14 +17,6 @@ struct Download {
     progress: f64, // 0.0 to 1.0
 }
 
-fn progress_bar(progress: f64, width: usize) -> String {
-    let filled = (progress * width as f64).round() as usize;
-    let empty = width - filled;
-    let filled_chars = "█".repeat(filled);
-    let empty_chars = "░".repeat(empty);
-    format!("[{}{}] {:.0}%", filled_chars, empty_chars, progress * 100.0)
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut list_state = ListState::default();
@@ -32,12 +24,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let downloads = vec![
         Download {
-            name: "This is a very big test item".to_string(),
+            name: "This is a very big test item name testing".to_string(),
             progress: 0.3,
         },
         Download {
             name: "Item 2".to_string(),
-            progress: 0.7,
+            progress: 1.0,
         },
         Download {
             name: "Item 3".to_string(),
@@ -86,23 +78,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             f.render_widget(downloads_block.clone(), horizontal_layout[0]);
             let downloads_inner = downloads_block.inner(horizontal_layout[0]);
 
-            let items: Vec<ListItem> = downloads
-                .iter()
-                .map(|d| {
-                    let bar = progress_bar(d.progress, 14);
-                    let display_name = if d.name.len() > 20 {
-                        format!("{}..", &d.name[0..14])
+            // Layout for each download item (2 lines: name + progress)
+            let item_layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(vec![Constraint::Length(4); downloads.len()])
+                .split(downloads_inner);
+
+            for (i, item) in downloads.iter().enumerate() {
+                let selected = list_state.selected().unwrap_or(0) == i;
+                let item_style = if selected {
+                    Style::default().bg(Color::Blue)
+                } else {
+                    Style::default()
+                };
+
+                let item_name_len = item.name.len();
+                let display_name = if item_name_len > 38 {
+                    format!(
+                        "{}..{}",
+                        &item.name[0..10],
+                        &item.name[item_name_len - 10..item_name_len]
+                    ) // Truncate to fit
+                } else {
+                    item.name.clone()
+                };
+
+                // Combine name and bar in a single Paragraph with newlines
+                let item_text = format!("{}\n ", display_name); // Name on first line, space for gauge below
+                let item_para = Paragraph::new(item_text);
+
+                let item_block = Block::default()
+                    .borders(Borders::ALL)
+                    .style(item_style)
+                    .title(format!("{}", i + 1));
+                let item_area = item_layout[i];
+                f.render_widget(item_block.clone(), item_area);
+                let item_inner = item_block.inner(item_area);
+
+                // Sub-layout for name and gauge
+                let sub_layout = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Length(1), Constraint::Length(1)])
+                    .split(item_inner);
+
+                f.render_widget(item_para, sub_layout[0]);
+
+                let gauge = Gauge::default()
+                    .block(Block::default()) // Optional: add borders if you want
+                    .gauge_style(if (item.progress * 100.0) < 100.0 {
+                        Style::default().fg(Color::Yellow)
                     } else {
-                        d.name.clone()
-                    };
-                    ListItem::new(format!("{} {}", display_name, bar))
-                })
-                .collect();
+                        Style::default().fg(Color::Green)
+                    })
+                    .percent((item.progress * 100.0) as u16)
+                    .label(format!("[{:.0}%]", item.progress * 100.0)); // Bracketed percentage
 
-            let list = List::new(items).highlight_style(Style::default().bg(Color::Blue));
-
-            // Render the list inside the block
-            f.render_stateful_widget(list, downloads_inner, &mut list_state);
+                f.render_widget(gauge, sub_layout[1]);
+            }
 
             // Main area paragraph widget
             let paragraph = Paragraph::new("test").block(Block::default().borders(Borders::ALL));
