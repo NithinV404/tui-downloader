@@ -1,4 +1,5 @@
 use crossterm::{
+    event::Event,
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -18,6 +19,12 @@ struct Download {
     progress: f64,
     speed: String,
     status: String,
+}
+
+#[derive(PartialEq)]
+enum InputMode {
+    Normal,
+    Editing,
 }
 
 const APP_VERSION: &str = "1.0";
@@ -243,6 +250,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut current_tab: usize = 0;
     let mut scroll_offset: usize = 0;
 
+    let mut link_input = String::new();
+    let mut input_mode: InputMode = InputMode::Normal;
+
     // Main loop
     loop {
         let filtered_downloads: Vec<&Download> = downloads
@@ -268,11 +278,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let vertical_layout = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
+                    Constraint::Length(3), // Input for links
                     Constraint::Length(3), // Tabs
                     Constraint::Min(1),    // Main Area
                     Constraint::Length(1), // Instructions
                 ])
                 .split(size);
+
+            let input_field = Paragraph::new(link_input.as_str())
+                .block(Block::default().borders(Borders::ALL)
+                    .title("Input URL"))
+                .style(Style::default().fg(if input_mode == InputMode::Editing { Color::Yellow } else { Color::White }));
 
             //Tabs for filtering
             let tabs = Tabs::new(vec!["[1] Active", "[2] Queue", "[3] Completed"])
@@ -289,7 +305,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let horizontal_layout = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
-                .split(vertical_layout[1]);
+                .split(vertical_layout[2]);
 
             let selected_index = list_state.selected().unwrap_or(0);
             let list_area = horizontal_layout[0];
@@ -402,38 +418,68 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .split(horizontal_layout[1]);
 
             // Instructions with better contrast and styling
-            let instructions = Paragraph::new("<Space> Pause/Resume   <D> Delete   <Enter> Open Details   <Q> Quit")
+            let instructions = Paragraph::new(if input_mode == InputMode::Editing {"<Esc> Quit  <Backspace> Clear  <Ctrl+Shift+V> Paste"} else {"<Space> Pause/Resume   <D> Delete   <Enter> Open Details   <Q> Quit  <I> Input Mode"})
                 .style(Style::default().bg(Color::Cyan).fg(Color::Black))
                 .alignment(Alignment::Center);
 
             // Render widgets
-            f.render_widget(tabs, vertical_layout[0]);
+            f.render_widget(input_field, vertical_layout[0]);
+            f.render_widget(tabs, vertical_layout[1]);
             f.render_widget(details, right_layout[0]);
             f.render_widget(logs, right_layout[1]);
-            f.render_widget(instructions, vertical_layout[2]);
+            f.render_widget(instructions, vertical_layout[3]);
         })?;
 
         if crossterm::event::poll(std::time::Duration::from_millis(100))? {
-            if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
-                match key.code {
-                    crossterm::event::KeyCode::Char('q') => break,
-                    crossterm::event::KeyCode::Char('1') => current_tab = 0,
-                    crossterm::event::KeyCode::Char('2') => current_tab = 1,
-                    crossterm::event::KeyCode::Char('3') => current_tab = 2,
-                    crossterm::event::KeyCode::Up => {
-                        let i = list_state.selected().unwrap_or(0);
-                        if i > 0 {
-                            list_state.select(Some(i - 1));
+            match crossterm::event::read()? {
+                crossterm::event::Event::Key(key) => match input_mode {
+                    InputMode::Normal => match key.code {
+                        crossterm::event::KeyCode::Char('i') => input_mode = InputMode::Editing,
+                        crossterm::event::KeyCode::Char('q') => break,
+                        crossterm::event::KeyCode::Char('1') => current_tab = 0,
+                        crossterm::event::KeyCode::Char('2') => current_tab = 1,
+                        crossterm::event::KeyCode::Char('3') => current_tab = 2,
+                        crossterm::event::KeyCode::Up => {
+                            let i = list_state.selected().unwrap_or(0);
+                            if i > 0 {
+                                list_state.select(Some(i - 1));
+                            }
                         }
-                    }
-                    crossterm::event::KeyCode::Down => {
-                        let i = list_state.selected().unwrap_or(0);
-                        if i < filtered_downloads.len().saturating_sub(1) {
-                            list_state.select(Some(i + 1));
+                        crossterm::event::KeyCode::Down => {
+                            let i = list_state.selected().unwrap_or(0);
+                            if i < filtered_downloads.len().saturating_sub(1) {
+                                list_state.select(Some(i + 1));
+                            }
                         }
+                        _ => {}
+                    },
+                    InputMode::Editing => match key.code {
+                        crossterm::event::KeyCode::Enter => {
+                            if !link_input.is_empty() {
+                            } else {
+                                link_input.clear();
+                                input_mode = InputMode::Normal;
+                            }
+                        }
+                        crossterm::event::KeyCode::Char(c) => {
+                            link_input.push(c);
+                        }
+                        crossterm::event::KeyCode::Backspace => {
+                            link_input.pop();
+                        }
+                        crossterm::event::KeyCode::Esc => {
+                            link_input.clear();
+                            input_mode = InputMode::Normal;
+                        }
+                        _ => {}
+                    },
+                },
+                crossterm::event::Event::Paste(data) => {
+                    if input_mode == InputMode::Editing {
+                        link_input.push_str(&data);
                     }
-                    _ => {}
                 }
+                _ => {}
             }
         }
     }
