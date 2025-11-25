@@ -1,5 +1,4 @@
 use crossterm::{
-    event::Event,
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -8,26 +7,114 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, LineGauge, ListState, Paragraph, Tabs},
+    widgets::{ListState, Paragraph},
 };
 use std::io;
 
-#[derive(Clone)]
-struct Download {
-    name: String,
-    progress: f64,
-    speed: String,
-    status: String,
+mod models;
+mod ui;
+
+use models::{Download, InputMode};
+use ui::render_input_field;
+
+use crate::ui::{render_details_pane, render_downloads_list, render_input_guide, render_tabs};
+
+#[derive(Debug, Clone, Copy)]
+enum KeyAction {
+    // Normal mode actions
+    EnterEditMode,
+    Quit,
+    SelectTab(usize),
+    MoveUp,
+    MoveDown,
+
+    // Editing mode actions
+    SubmitInput,
+    CancelInput,
+    DeleteChar,
+
+    // No action
+    None,
 }
 
-#[derive(PartialEq)]
-enum InputMode {
-    Normal,
-    Editing,
+struct InputHandler {
+    mode: InputMode,
+    buffer: String,
 }
 
-const APP_VERSION: &str = "1.0";
+impl InputHandler {
+    fn new() -> Self {
+        Self {
+            mode: InputMode::Normal,
+            buffer: String::new(),
+        }
+    }
+
+    fn handle_key(&mut self, key: &crossterm::event::KeyEvent) -> KeyAction {
+        match self.mode {
+            InputMode::Normal => self.handle_normal_mode(key),
+            InputMode::Editing => self.handle_input_mode(key),
+        }
+    }
+
+    fn handle_normal_mode(&mut self, key: &crossterm::event::KeyEvent) -> KeyAction {
+        use crossterm::event::KeyCode;
+
+        match key.code {
+            KeyCode::Char('i') => KeyAction::EnterEditMode,
+            KeyCode::Char('q') => KeyAction::Quit,
+            KeyCode::Char('1') => KeyAction::SelectTab(0),
+            KeyCode::Char('2') => KeyAction::SelectTab(1),
+            KeyCode::Char('3') => KeyAction::SelectTab(2),
+            KeyCode::Up => KeyAction::MoveUp,
+            KeyCode::Down => KeyAction::MoveDown,
+            _ => KeyAction::None,
+        }
+    }
+
+    fn handle_input_mode(&mut self, key: &crossterm::event::KeyEvent) -> KeyAction {
+        use crossterm::event::KeyCode;
+        match key.code {
+            KeyCode::Enter => KeyAction::SubmitInput,
+            KeyCode::Esc => KeyAction::CancelInput,
+            KeyCode::Backspace => KeyAction::DeleteChar,
+            KeyCode::Char(c) => {
+                self.buffer.push(c);
+                KeyAction::None
+            }
+            _ => KeyAction::None,
+        }
+    }
+
+    fn handle_paste(&mut self, data: &str) {
+        if self.mode == InputMode::Editing {
+            self.buffer.push_str(data);
+        }
+    }
+
+    fn enter_edit_mode(&mut self) {
+        self.mode = InputMode::Editing;
+        self.buffer.clear();
+    }
+
+    fn exit_edit_mode(&mut self) {
+        self.mode = InputMode::Normal;
+    }
+
+    fn delete_last_char(&mut self) {
+        if self.mode == InputMode::Editing {
+            self.buffer.pop();
+        }
+    }
+
+    fn get_input(&mut self) -> &str {
+        &self.buffer
+    }
+
+    fn take_input(&mut self) -> String {
+        std::mem::take(&mut self.buffer)
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -247,11 +334,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut list_state = ListState::default();
     list_state.select(Some(0));
+    let selected_index = list_state.selected().unwrap_or(0);
     let mut current_tab: usize = 0;
-    let mut scroll_offset: usize = 0;
 
-    let mut link_input = String::new();
-    let mut input_mode: InputMode = InputMode::Normal;
+    let mut url_input = String::new();
+    let mut input_handler = InputHandler::new();
+    let mut input_mode = InputMode::Normal;
 
     // Main loop
     loop {
@@ -265,16 +353,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
             .collect();
 
-        // Update list_state if filtered list is smaller
-        if list_state.selected().unwrap_or(0) >= filtered_downloads.len() {
-            list_state.select(Some(filtered_downloads.len().saturating_sub(1)));
-        }
-
         // Draw the UI
         terminal.draw(|f| {
             let size = f.size(); // Get the terminal size
 
-            // Vertical Layout: Tabs, Main Area, Instructions
+            // Vertical Layout: Tabs, Main Area, Input Guide
             let vertical_layout = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
@@ -285,204 +368,84 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ])
                 .split(size);
 
-            let input_field = Paragraph::new(link_input.as_str())
-                .block(Block::default().borders(Borders::ALL)
-                    .title("Input URL"))
-                .style(Style::default().fg(if input_mode == InputMode::Editing { Color::Yellow } else { Color::White }));
-
-            //Tabs for filtering
-            let tabs = Tabs::new(vec!["[1] Active", "[2] Queue", "[3] Completed"])
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(format!("TUI Downloader {}", APP_VERSION)),
-                )
-                .select(current_tab)
-                .style(Style::default().fg(Color::White))
-                .highlight_style(Style::default().fg(Color::Yellow));
-
-            // Horizontal Layout for downloads and main area
+            // Horizontal Layout: Downloads_List, Download_Info
             let horizontal_layout = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
                 .split(vertical_layout[2]);
 
-            let selected_index = list_state.selected().unwrap_or(0);
-            let list_area = horizontal_layout[0];
+            // Input Field Pane UI
+            render_input_field(f, vertical_layout[0], &url_input, input_mode);
 
-            // Calculate how many items can fit in the visible area
-            // Each item takes 2 rows (name + gauge)
-            let visible_rows = (list_area.height as usize).saturating_sub(2); // -2 for borders
-            let items_per_screen = visible_rows / 2;
+            // Tabs Field Pane UI
+            let tab_titles = vec!["[1] Active", "[2] Queue", "[3] Completed"];
+            render_tabs(f, vertical_layout[1], current_tab, tab_titles);
 
-            // Auto-scroll to keep selected item visible
-            if selected_index < scroll_offset {
-                scroll_offset = selected_index;
-            } else if selected_index >= scroll_offset + items_per_screen {
-                scroll_offset = selected_index - items_per_screen + 1;
-            }
+            // Render Downloads Pane UI
+            render_downloads_list(
+                f,
+                horizontal_layout[0],
+                &filtered_downloads,
+                &mut list_state,
+            );
 
-            // Render the list with scrolling
-            let mut current_y = list_area.top() + 1; // +1 for top border
-
-            for (idx, item) in filtered_downloads.iter().enumerate() {
-                // Skip items before scroll offset
-                if idx < scroll_offset {
-                    continue;
-                }
-                // Stop if we've filled the visible area
-                if current_y + 2 > list_area.bottom() {
-                    break;
-                }
-
-                let is_selected = idx == selected_index;
-
-                // Create layout for this item (2 rows)
-                let item_layout = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([Constraint::Length(1), Constraint::Length(1)])
-                    .split(ratatui::layout::Rect {
-                        x: list_area.left() + 1,
-                        y: current_y,
-                        width: list_area.width.saturating_sub(2),
-                        height: 2,
-                    });
-
-                // Name line
-                let display_name = if item.name.len() > 25 {
-                    format!("{}..", &item.name[0..24])
-                } else {
-                    item.name.clone()
-                };
-
-                let name_style = if is_selected {
-                    Style::default().fg(Color::Yellow)
-                } else if item.progress == 1.0{
-                    Style::default().fg(Color::Green)
-                }
-                else{
-                    Style::default().fg(Color::LightYellow)
-                };
-
-                let name_paragraph = Paragraph::new(display_name).style(name_style);
-                f.render_widget(name_paragraph, item_layout[0]);
-
-                // Gauge line
-                let gauge_label = Line::from(vec![
-                    Span::raw(format!("{:.0}% • ", item.progress * 100.0)),
-                    Span::raw(&item.speed),
-                ]);
-
-                let gauge = LineGauge::default()
-                    .ratio(item.progress)
-                    .label(gauge_label)
-                    .gauge_style(Style::default().fg(if is_selected {
-                        Color::Yellow
-                    } else if item.progress == 1.0{
-                        Color::Green
-                    }
-                    else{
-                        Color::LightYellow
-                    }));
-
-                f.render_widget(gauge, item_layout[1]);
-
-                current_y += 2;
-            }
-
-            // Render list border
-            let list_border = Block::default()
-                .borders(Borders::ALL)
-                .title(format!("Downloads [{}/{}]", selected_index + 1, filtered_downloads.len()));
-            f.render_widget(list_border, list_area);
-
-            // Details Pane
+            // Render Details Pane UI
             let selected_download = if selected_index < filtered_downloads.len() {
                 filtered_downloads[selected_index].clone()
             } else {
                 downloads[0].clone()
             };
+            render_details_pane(f, horizontal_layout[1], selected_download);
 
-            let status_text = format!("STATUS: {}\n\nFile: {}\nSize: 4.7 GB\nServer: mirrors.edge.org\nPath: ~/Downloads/ISOs", selected_download.status, selected_download.name);
-            let logs_text = "> Handshake successful\n> Allocating disk space...\n> Connected to peer 1\n> Connected to peer 2\n> Chunk 1452 verified\n> Rate limit: None";
-
-            let details = Paragraph::new(status_text)
-                .block(Block::default().borders(Borders::ALL).title("Details"));
-            let logs = Paragraph::new(logs_text)
-                .block(Block::default().borders(Borders::ALL).title("LOGS"));
-
-            // Vertical split for details/logs
-            let right_layout = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
-                .split(horizontal_layout[1]);
-
-            // Instructions with better contrast and styling
-            let instructions = Paragraph::new(if input_mode == InputMode::Editing {"<Esc> Quit  <Backspace> Clear  <Ctrl+Shift+V> Paste"} else {"<Space> Pause/Resume   <D> Delete   <Enter> Open Details   <Q> Quit  <I> Input Mode"})
-                .style(Style::default().bg(Color::Cyan).fg(Color::Black))
-                .alignment(Alignment::Center);
-
-            // Render widgets
-            f.render_widget(input_field, vertical_layout[0]);
-            f.render_widget(tabs, vertical_layout[1]);
-            f.render_widget(details, right_layout[0]);
-            f.render_widget(logs, right_layout[1]);
-            f.render_widget(instructions, vertical_layout[3]);
+            // Render Instructions Pane UI
+            render_input_guide(f, vertical_layout[3], input_mode);
         })?;
 
         if crossterm::event::poll(std::time::Duration::from_millis(100))? {
             match crossterm::event::read()? {
-                crossterm::event::Event::Key(key) => match input_mode {
-                    InputMode::Normal => match key.code {
-                        crossterm::event::KeyCode::Char('i') => input_mode = InputMode::Editing,
-                        crossterm::event::KeyCode::Char('q') => break,
-                        crossterm::event::KeyCode::Char('1') => current_tab = 0,
-                        crossterm::event::KeyCode::Char('2') => current_tab = 1,
-                        crossterm::event::KeyCode::Char('3') => current_tab = 2,
-                        crossterm::event::KeyCode::Up => {
+                crossterm::event::Event::Key(key) => {
+                    let action = input_handler.handle_key(&key);
+
+                    match action {
+                        KeyAction::EnterEditMode => input_handler.enter_edit_mode(),
+                        KeyAction::Quit => break,
+                        KeyAction::SelectTab(tab) => current_tab = tab,
+                        KeyAction::MoveUp => {
                             let i = list_state.selected().unwrap_or(0);
                             if i > 0 {
                                 list_state.select(Some(i - 1));
                             }
                         }
-                        crossterm::event::KeyCode::Down => {
+                        KeyAction::MoveDown => {
                             let i = list_state.selected().unwrap_or(0);
                             if i < filtered_downloads.len().saturating_sub(1) {
                                 list_state.select(Some(i + 1));
                             }
                         }
-                        _ => {}
-                    },
-                    InputMode::Editing => match key.code {
-                        crossterm::event::KeyCode::Enter => {
-                            if !link_input.is_empty() {
+                        KeyAction::SubmitInput => {
+                            if !input_handler.get_input().is_empty() {
+                                let url = input_handler.take_input();
+                                // TODO: Process the URL
+                                input_handler.exit_edit_mode();
                             } else {
-                                link_input.clear();
-                                input_mode = InputMode::Normal;
+                                input_handler.exit_edit_mode();
                             }
                         }
-                        crossterm::event::KeyCode::Char(c) => {
-                            link_input.push(c);
-                        }
-                        crossterm::event::KeyCode::Backspace => {
-                            link_input.pop();
-                        }
-                        crossterm::event::KeyCode::Esc => {
-                            link_input.clear();
-                            input_mode = InputMode::Normal;
-                        }
-                        _ => {}
-                    },
-                },
-                crossterm::event::Event::Paste(data) => {
-                    if input_mode == InputMode::Editing {
-                        link_input.push_str(&data);
+                        KeyAction::CancelInput => input_handler.exit_edit_mode(),
+                        KeyAction::DeleteChar => input_handler.delete_last_char(),
+                        KeyAction::None => {}
                     }
+                }
+                crossterm::event::Event::Paste(data) => {
+                    input_handler.handle_paste(&data);
                 }
                 _ => {}
             }
         }
+        url_input = input_handler.get_input().to_string();
+        input_mode = input_handler.mode;
     }
+
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
