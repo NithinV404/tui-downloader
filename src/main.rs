@@ -268,7 +268,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Constraint::Length(3), // Input for links
                     Constraint::Length(3), // Tabs
                     Constraint::Min(1),    // Main Area
-                    Constraint::Length(1), // Instructions
+                    Constraint::Length(4), // Instructions
                 ])
                 .split(size);
 

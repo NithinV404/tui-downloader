@@ -161,14 +161,44 @@ pub fn render_details_pane(f: &mut Frame, size: Rect, items: Download) {
 }
 
 pub fn render_input_guide(f: &mut Frame, size: Rect, input_mode: InputMode) {
-    // Instructions with better contrast and styling
-    let instructions = Paragraph::new(if input_mode == InputMode::Editing {
-        "<Esc> Quit  <Backspace> Clear  <Ctrl+Shift+V> Paste"
+    // Define shortcuts based on the mode
+    let shortcuts = if input_mode == InputMode::Editing {
+        vec![Line::from(vec![
+            Span::styled("[Esc]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Quit  "),
+            Span::styled("[Backspace]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Space  "),
+            Span::styled("[Ctrl+Shift+V]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Paste  "),
+            Span::styled("[Ctrl+L]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Clear All"),
+        ])]
     } else {
-        "<Space> Pause/Resume   <D> Delete   <Enter> Open Details   <Q> Quit  <I> Input Mode  <↑↓> Move Up/Down"
-    })
-    .style(Style::default().bg(Color::Cyan).fg(Color::Black))
-    .alignment(Alignment::Center);
+        vec![Line::from(vec![
+            Span::styled("[Space]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Pause/Resume  "),
+            Span::styled("[D]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Delete  "),
+            Span::styled("[Enter]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Open Details "),
+            Span::styled("[Q]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Quit  "),
+            Span::styled("[I]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Input Mode  "),
+            Span::styled("[↑↓]", Style::default().fg(Color::Yellow)),
+            Span::raw(" Move Up/Down"),
+        ])]
+    };
 
-    f.render_widget(instructions, size)
+    // Create a Paragraph widget with the shortcuts
+    let instructions = Paragraph::new(shortcuts)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Shortcuts")
+                .style(Style::default().fg(Color::White)),
+        )
+        .alignment(Alignment::Center);
+
+    f.render_widget(instructions, size);
 }
