@@ -5,116 +5,20 @@ use crossterm::{
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
-    layout::{Alignment, Constraint, Direction, Layout},
-    style::{Color, Style},
-    widgets::{ListState, Paragraph},
+    layout::{Constraint, Direction, Layout},
+    widgets::ListState,
 };
 use std::io;
 
+mod input;
 mod models;
 mod ui;
 
+use input::{InputHandler, KeyAction};
 use models::{Download, InputMode};
 use ui::render_input_field;
 
 use crate::ui::{render_details_pane, render_downloads_list, render_input_guide, render_tabs};
-
-#[derive(Debug, Clone, Copy)]
-enum KeyAction {
-    // Normal mode actions
-    EnterEditMode,
-    Quit,
-    SelectTab(usize),
-    MoveUp,
-    MoveDown,
-
-    // Editing mode actions
-    SubmitInput,
-    CancelInput,
-    DeleteChar,
-
-    // No action
-    None,
-}
-
-struct InputHandler {
-    mode: InputMode,
-    buffer: String,
-}
-
-impl InputHandler {
-    fn new() -> Self {
-        Self {
-            mode: InputMode::Normal,
-            buffer: String::new(),
-        }
-    }
-
-    fn handle_key(&mut self, key: &crossterm::event::KeyEvent) -> KeyAction {
-        match self.mode {
-            InputMode::Normal => self.handle_normal_mode(key),
-            InputMode::Editing => self.handle_input_mode(key),
-        }
-    }
-
-    fn handle_normal_mode(&mut self, key: &crossterm::event::KeyEvent) -> KeyAction {
-        use crossterm::event::KeyCode;
-
-        match key.code {
-            KeyCode::Char('i') => KeyAction::EnterEditMode,
-            KeyCode::Char('q') => KeyAction::Quit,
-            KeyCode::Char('1') => KeyAction::SelectTab(0),
-            KeyCode::Char('2') => KeyAction::SelectTab(1),
-            KeyCode::Char('3') => KeyAction::SelectTab(2),
-            KeyCode::Up => KeyAction::MoveUp,
-            KeyCode::Down => KeyAction::MoveDown,
-            _ => KeyAction::None,
-        }
-    }
-
-    fn handle_input_mode(&mut self, key: &crossterm::event::KeyEvent) -> KeyAction {
-        use crossterm::event::KeyCode;
-        match key.code {
-            KeyCode::Enter => KeyAction::SubmitInput,
-            KeyCode::Esc => KeyAction::CancelInput,
-            KeyCode::Backspace => KeyAction::DeleteChar,
-            KeyCode::Char(c) => {
-                self.buffer.push(c);
-                KeyAction::None
-            }
-            _ => KeyAction::None,
-        }
-    }
-
-    fn handle_paste(&mut self, data: &str) {
-        if self.mode == InputMode::Editing {
-            self.buffer.push_str(data);
-        }
-    }
-
-    fn enter_edit_mode(&mut self) {
-        self.mode = InputMode::Editing;
-        self.buffer.clear();
-    }
-
-    fn exit_edit_mode(&mut self) {
-        self.mode = InputMode::Normal;
-    }
-
-    fn delete_last_char(&mut self) {
-        if self.mode == InputMode::Editing {
-            self.buffer.pop();
-        }
-    }
-
-    fn get_input(&mut self) -> &str {
-        &self.buffer
-    }
-
-    fn take_input(&mut self) -> String {
-        std::mem::take(&mut self.buffer)
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -433,6 +337,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         KeyAction::CancelInput => input_handler.exit_edit_mode(),
                         KeyAction::DeleteChar => input_handler.delete_last_char(),
+                        KeyAction::ClearAll => {}
                         KeyAction::None => {}
                     }
                 }
