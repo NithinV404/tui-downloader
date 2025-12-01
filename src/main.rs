@@ -2,232 +2,42 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{
-    Terminal,
-    backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
-    widgets::ListState,
-};
-use std::io;
+use ratatui::{Terminal, backend::CrosstermBackend, widgets::ListState};
 
+use std::io;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+mod aria2;
+mod download_manager;
 mod input;
 mod models;
 mod ui;
 
+use download_manager::DownloadManager;
 use input::{InputHandler, KeyAction};
-use models::{Download, InputMode};
-use ui::render_input_field;
+use ui::{PopupType, filter_by_tab, render_app, render_popup, render_size_warning};
 
-use crate::ui::{render_details_pane, render_downloads_list, render_input_guide, render_tabs};
+// Minimum terminal size requirements
+const MIN_WIDTH: u16 = 100;
+const MIN_HEIGHT: u16 = 24;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let downloads = vec![
-        Download {
-            name: "ubuntu-22.04.iso".to_string(),
-            progress: 0.6,
-            speed: "5.2MB/s".to_string(),
-            status: "DOWNLOADING".to_string(),
-        },
-        Download {
-            name: "holiday_photos_2023.zip".to_string(),
-            progress: 1.0,
-            speed: "Done".to_string(),
-            status: "COMPLETED".to_string(),
-        },
-        Download {
-            name: "large_dataset_v2.csv".to_string(),
-            progress: 0.15,
-            speed: "1.1MB/s".to_string(),
-            status: "DOWNLOADING".to_string(),
-        },
-        Download {
-            name: "music_backup.tar.gz".to_string(),
-            progress: 0.0,
-            speed: "Pending".to_string(),
-            status: "QUEUED".to_string(),
-        },
-        Download {
-            name: "nodejs-18.15.0.tar.gz".to_string(),
-            progress: 0.45,
-            speed: "3.8MB/s".to_string(),
-            status: "DOWNLOADING".to_string(),
-        },
-        Download {
-            name: "docker-image-backup.tar".to_string(),
-            progress: 0.0,
-            speed: "Pending".to_string(),
-            status: "QUEUED".to_string(),
-        },
-        Download {
-            name: "python-3.11-docs.pdf".to_string(),
-            progress: 0.82,
-            speed: "2.1MB/s".to_string(),
-            status: "DOWNLOADING".to_string(),
-        },
-        Download {
-            name: "rust-1.70.0-installer.exe".to_string(),
-            progress: 1.0,
-            speed: "Done".to_string(),
-            status: "COMPLETED".to_string(),
-        },
-        Download {
-            name: "game-assets-latest.zip".to_string(),
-            progress: 0.33,
-            speed: "4.5MB/s".to_string(),
-            status: "DOWNLOADING".to_string(),
-        },
-        Download {
-            name: "database-backup-2024.sql".to_string(),
-            progress: 0.0,
-            speed: "Pending".to_string(),
-            status: "QUEUED".to_string(),
-        },
-        Download {
-            name: "video-tutorial-4k.mkv".to_string(),
-            progress: 0.25,
-            speed: "8.7MB/s".to_string(),
-            status: "DOWNLOADING".to_string(),
-        },
-        Download {
-            name: "scientific-papers-bundle.tar.gz".to_string(),
-            progress: 0.55,
-            speed: "2.3MB/s".to_string(),
-            status: "DOWNLOADING".to_string(),
-        },
-        Download {
-            name: "minecraft-world-save.zip".to_string(),
-            progress: 0.67,
-            speed: "6.2MB/s".to_string(),
-            status: "DOWNLOADING".to_string(),
-        },
-        Download {
-            name: "photoshop-plugin-pack.rar".to_string(),
-            progress: 0.0,
-            speed: "Pending".to_string(),
-            status: "QUEUED".to_string(),
-        },
-        Download {
-            name: "blender-project-files.blend".to_string(),
-            progress: 0.91,
-            speed: "5.5MB/s".to_string(),
-            status: "DOWNLOADING".to_string(),
-        },
-        Download {
-            name: "kubernetes-deployment.yaml".to_string(),
-            progress: 1.0,
-            speed: "Done".to_string(),
-            status: "COMPLETED".to_string(),
-        },
-        Download {
-            name: "audio-track-master.wav".to_string(),
-            progress: 0.38,
-            speed: "3.2MB/s".to_string(),
-            status: "DOWNLOADING".to_string(),
-        },
-        Download {
-            name: "font-collection-complete.zip".to_string(),
-            progress: 0.0,
-            speed: "Pending".to_string(),
-            status: "QUEUED".to_string(),
-        },
-        Download {
-            name: "virtual-machine-image.iso".to_string(),
-            progress: 0.72,
-            speed: "7.1MB/s".to_string(),
-            status: "DOWNLOADING".to_string(),
-        },
-        Download {
-            name: "machine-learning-dataset.csv".to_string(),
-            progress: 0.19,
-            speed: "2.8MB/s".to_string(),
-            status: "DOWNLOADING".to_string(),
-        },
-        Download {
-            name: "graphic-design-mockups.psd".to_string(),
-            progress: 1.0,
-            speed: "Done".to_string(),
-            status: "COMPLETED".to_string(),
-        },
-        Download {
-            name: "source-code-repository.git".to_string(),
-            progress: 0.44,
-            speed: "4.3MB/s".to_string(),
-            status: "DOWNLOADING".to_string(),
-        },
-        Download {
-            name: "system-backup-full.backup".to_string(),
-            progress: 0.0,
-            speed: "Pending".to_string(),
-            status: "QUEUED".to_string(),
-        },
-        Download {
-            name: "streaming-video-hd.mp4".to_string(),
-            progress: 0.58,
-            speed: "9.4MB/s".to_string(),
-            status: "DOWNLOADING".to_string(),
-        },
-        Download {
-            name: "cryptography-library.jar".to_string(),
-            progress: 1.0,
-            speed: "Done".to_string(),
-            status: "COMPLETED".to_string(),
-        },
-        Download {
-            name: "weather-station-data.json".to_string(),
-            progress: 0.26,
-            speed: "1.5MB/s".to_string(),
-            status: "DOWNLOADING".to_string(),
-        },
-        Download {
-            name: "mobile-app-build.apk".to_string(),
-            progress: 0.0,
-            speed: "Pending".to_string(),
-            status: "QUEUED".to_string(),
-        },
-        Download {
-            name: "embedded-firmware.bin".to_string(),
-            progress: 0.85,
-            speed: "1.9MB/s".to_string(),
-            status: "DOWNLOADING".to_string(),
-        },
-        Download {
-            name: "web-scraper-output.xlsx".to_string(),
-            progress: 0.41,
-            speed: "3.6MB/s".to_string(),
-            status: "DOWNLOADING".to_string(),
-        },
-        Download {
-            name: "security-audit-report.pdf".to_string(),
-            progress: 1.0,
-            speed: "Done".to_string(),
-            status: "COMPLETED".to_string(),
-        },
-    ];
-
-    /*┌─ TUI Downloader v1.0 ───────────────────────────────────────────────┐
-    │  Tabs: [1] Active (3)   [2] Queue      [3] Completed                │
-    ├───────────────────────────────────────┬─────────────────────────────┤
-    │                                       │                             │
-    │  1. ubuntu-22.04.iso                  │  STATUS: DOWNLOADING        │
-    │     [██████████░░░░░░] 60% • 5.2MB/s  │                             │
-    │                                       │  File: ubuntu-22.04.iso     │
-    │                                       │  Size: 4.7 GB               │
-    │  2. holiday_photos_2023.zip           │  Server: mirrors.edge.org   │
-    │     [████████████████] 100% • Done    │  Path: ~/Downloads/ISOs     │
-    │                                       │                             │
-    │ >>  3. large_dataset_v2.csv           │  LOGS ────────────────────  │
-    │     [███░░░░░░░░░░░░░] 15% • 1.1MB/s  │  > Handshake successful     │
-    │                                       │  > Allocating disk space... │
-    │                                       │  > Connected to peer 1      │
-    │  4. music_backup.tar.gz               │  > Connected to peer 2      │
-    │     [░░░░░░░░░░░░░░░░] 0%  • Pending  │  > Chunk 1452 verified      │
-    │                                       │  > Rate limit: None         │
-    │                                       │                             │
-    │                                       │                             │
-    │                                       │                             │
-    └───────────────────────────────────────┴─────────────────────────────┘
-    <Space> Pause/Resume   <D> Delete   <Enter> Open Details   <Q> Quit     */
+    // Initialize download manager (this will auto-spawn aria2c)
+    let download_manager = match DownloadManager::new().await {
+        Ok(dm) => Arc::new(dm),
+        Err(e) => {
+            eprintln!("Failed to initialize download manager: {}", e);
+            eprintln!("Make sure aria2c is installed on your system.");
+            eprintln!("You can install it with:");
+            eprintln!("  - Ubuntu/Debian: sudo apt install aria2");
+            eprintln!("  - Fedora: sudo dnf install aria2");
+            eprintln!("  - Arch: sudo pacman -S aria2");
+            eprintln!("  - macOS: brew install aria2");
+            return Err(e);
+        }
+    };
 
     //Setup for terminal backend
     enable_raw_mode()?;
@@ -238,82 +48,129 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut list_state = ListState::default();
     list_state.select(Some(0));
-    let selected_index = list_state.selected().unwrap_or(0);
     let mut current_tab: usize = 0;
 
-    let mut url_input = String::new();
     let mut input_handler = InputHandler::new();
-    let mut input_mode = InputMode::Normal;
+    let status_message = Arc::new(RwLock::new(String::new()));
+    let mut show_quit_confirm = false;
+    let mut waiting_for_quit_response = false;
+
+    // Spawn background task to update downloads from aria2c
+    let dm_clone = download_manager.clone();
+    tokio::spawn(async move {
+        loop {
+            if let Err(e) = dm_clone.update_downloads().await {
+                eprintln!("Error updating downloads: {}", e);
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
+    });
 
     // Main loop
     loop {
-        let filtered_downloads: Vec<&Download> = downloads
-            .iter()
-            .filter(|d| match current_tab {
-                0 => d.progress > 0.0 && d.progress < 1.0,
-                1 => d.progress == 0.0,
-                2 => d.progress == 1.0,
-                _ => false,
-            })
-            .collect();
+        // Get downloads from manager
+        let all_downloads = download_manager.get_all_downloads().await;
 
-        // Draw the UI
+        // Draw the UI using the modular render function
+        let input_text = input_handler.get_input().to_string();
+        let input_mode = input_handler.mode;
+        let status_msg = status_message.read().await.clone();
+
         terminal.draw(|f| {
-            let size = f.size(); // Get the terminal size
+            let size = f.size();
 
-            // Vertical Layout: Tabs, Main Area, Input Guide
-            let vertical_layout = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(3), // Input for links
-                    Constraint::Length(3), // Tabs
-                    Constraint::Min(1),    // Main Area
-                    Constraint::Length(4), // Instructions
-                ])
-                .split(size);
-
-            // Horizontal Layout: Downloads_List, Download_Info
-            let horizontal_layout = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
-                .split(vertical_layout[2]);
-
-            // Input Field Pane UI
-            render_input_field(f, vertical_layout[0], &url_input, input_mode);
-
-            // Tabs Field Pane UI
-            let tab_titles = vec!["[1] Active", "[2] Queue", "[3] Completed"];
-            render_tabs(f, vertical_layout[1], current_tab, tab_titles);
-
-            // Render Downloads Pane UI
-            render_downloads_list(
-                f,
-                horizontal_layout[0],
-                &filtered_downloads,
-                &mut list_state,
-            );
-
-            // Render Details Pane UI
-            let selected_download = if selected_index < filtered_downloads.len() {
-                filtered_downloads[selected_index].clone()
+            // Check terminal size
+            if size.width < MIN_WIDTH || size.height < MIN_HEIGHT {
+                render_size_warning(f, size, MIN_WIDTH, MIN_HEIGHT, size.width, size.height);
             } else {
-                downloads[0].clone()
-            };
-            render_details_pane(f, horizontal_layout[1], selected_download);
+                render_app(
+                    f,
+                    &all_downloads,
+                    current_tab,
+                    &mut list_state,
+                    &input_text,
+                    input_mode,
+                    &status_msg,
+                );
 
-            // Render Instructions Pane UI
-            render_input_guide(f, vertical_layout[3], input_mode);
+                // Show quit confirmation popup if requested
+                if show_quit_confirm {
+                    let active_count = all_downloads
+                        .iter()
+                        .filter(|d| d.status == "ACTIVE" || d.status == "WAITING")
+                        .count();
+
+                    let message = if active_count > 0 {
+                        format!(
+                            "You have {} active/queued download(s).\n\n\
+                            Quitting will cancel all downloads.\n\n\
+                            Are you sure you want to quit?",
+                            active_count
+                        )
+                    } else {
+                        "Are you sure you want to quit?".to_string()
+                    };
+
+                    render_popup(
+                        f,
+                        size,
+                        "Confirm Quit",
+                        &message,
+                        PopupType::Confirmation,
+                        true,
+                    );
+                }
+            }
         })?;
 
         if crossterm::event::poll(std::time::Duration::from_millis(100))? {
             match crossterm::event::read()? {
                 crossterm::event::Event::Key(key) => {
+                    // Check terminal size and allow force quit
+                    let size = terminal.size()?;
+                    if size.width < MIN_WIDTH || size.height < MIN_HEIGHT {
+                        // Only allow quit when terminal is too small
+                        if let crossterm::event::KeyCode::Char('q')
+                        | crossterm::event::KeyCode::Char('Q') = key.code
+                        {
+                            break;
+                        }
+                        continue;
+                    }
+
+                    // Handle quit confirmation popup
+                    if waiting_for_quit_response {
+                        match key.code {
+                            crossterm::event::KeyCode::Char('y')
+                            | crossterm::event::KeyCode::Char('Y') => {
+                                break;
+                            }
+                            crossterm::event::KeyCode::Char('n')
+                            | crossterm::event::KeyCode::Char('N')
+                            | crossterm::event::KeyCode::Esc => {
+                                show_quit_confirm = false;
+                                waiting_for_quit_response = false;
+                            }
+                            _ => {}
+                        }
+                        continue;
+                    }
+
                     let action = input_handler.handle_key(&key);
 
                     match action {
-                        KeyAction::EnterEditMode => input_handler.enter_edit_mode(),
-                        KeyAction::Quit => break,
-                        KeyAction::SelectTab(tab) => current_tab = tab,
+                        KeyAction::EnterEditMode => {
+                            input_handler.enter_edit_mode();
+                        }
+                        KeyAction::Quit => {
+                            // Show confirmation popup instead of quitting immediately
+                            show_quit_confirm = true;
+                            waiting_for_quit_response = true;
+                        }
+                        KeyAction::SelectTab(tab) => {
+                            current_tab = tab;
+                            list_state.select(Some(0));
+                        }
                         KeyAction::MoveUp => {
                             let i = list_state.selected().unwrap_or(0);
                             if i > 0 {
@@ -322,14 +179,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         KeyAction::MoveDown => {
                             let i = list_state.selected().unwrap_or(0);
-                            if i < filtered_downloads.len().saturating_sub(1) {
+                            let filtered_count = filter_by_tab(&all_downloads, current_tab).len();
+                            if i < filtered_count.saturating_sub(1) {
                                 list_state.select(Some(i + 1));
                             }
                         }
                         KeyAction::SubmitInput => {
                             if !input_handler.get_input().is_empty() {
                                 let url = input_handler.take_input();
-                                // TODO: Process the URL
+
+                                // Add download synchronously
+                                let dm = download_manager.clone();
+                                let url_clone = url.clone();
+                                tokio::task::block_in_place(|| {
+                                    tokio::runtime::Handle::current().block_on(async {
+                                        let _ = dm.add_download(&url_clone).await;
+                                    })
+                                });
+
                                 input_handler.exit_edit_mode();
                             } else {
                                 input_handler.exit_edit_mode();
@@ -337,7 +204,133 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         KeyAction::CancelInput => input_handler.exit_edit_mode(),
                         KeyAction::DeleteChar => input_handler.delete_last_char(),
-                        KeyAction::ClearAll => {}
+                        KeyAction::PauseResume => {
+                            if let Some(selected_idx) = list_state.selected() {
+                                let filtered_downloads = filter_by_tab(&all_downloads, current_tab);
+                                if selected_idx < filtered_downloads.len() {
+                                    let download = filtered_downloads[selected_idx];
+                                    if let Some(gid) = &download.gid {
+                                        let dm = download_manager.clone();
+                                        let gid_clone = gid.clone();
+                                        tokio::task::block_in_place(|| {
+                                            tokio::runtime::Handle::current().block_on(async {
+                                                if download.status == "PAUSED" {
+                                                    let _ = dm.resume_download(&gid_clone).await;
+                                                } else {
+                                                    let _ = dm.pause_download(&gid_clone).await;
+                                                }
+                                            })
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        KeyAction::Delete => {
+                            if let Some(selected_idx) = list_state.selected() {
+                                let filtered_downloads = filter_by_tab(&all_downloads, current_tab);
+                                if selected_idx < filtered_downloads.len() {
+                                    let download = filtered_downloads[selected_idx];
+                                    if let Some(gid) = &download.gid {
+                                        let dm = download_manager.clone();
+                                        let gid_clone = gid.clone();
+                                        let download_name = download.name.clone();
+                                        let status_msg = status_message.clone();
+
+                                        tokio::task::block_in_place(|| {
+                                            tokio::runtime::Handle::current().block_on(async {
+                                                match dm.remove_download(&gid_clone).await {
+                                                    Ok(_) => {
+                                                        *status_msg.write().await =
+                                                            format!("Deleted: {}", download_name);
+                                                    }
+                                                    Err(e) => {
+                                                        *status_msg.write().await =
+                                                            format!("Delete failed: {}", e);
+                                                    }
+                                                }
+                                            })
+                                        });
+
+                                        // Adjust selection after deletion
+                                        if selected_idx > 0 {
+                                            list_state.select(Some(selected_idx - 1));
+                                        } else if filtered_downloads.len() > 1 {
+                                            list_state.select(Some(0));
+                                        } else {
+                                            list_state.select(None);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        KeyAction::DeleteFile => {
+                            if let Some(selected_idx) = list_state.selected() {
+                                let filtered_downloads = filter_by_tab(&all_downloads, current_tab);
+                                if selected_idx < filtered_downloads.len() {
+                                    let download = filtered_downloads[selected_idx];
+                                    if let Some(gid) = &download.gid {
+                                        let dm = download_manager.clone();
+                                        let gid_clone = gid.clone();
+                                        let status_msg = status_message.clone();
+
+                                        tokio::task::block_in_place(|| {
+                                            tokio::runtime::Handle::current().block_on(async {
+                                                match dm.delete_file(&gid_clone).await {
+                                                    Ok(msg) => {
+                                                        *status_msg.write().await = msg;
+                                                    }
+                                                    Err(e) => {
+                                                        *status_msg.write().await =
+                                                            format!("Failed to delete file: {}", e);
+                                                    }
+                                                }
+                                            })
+                                        });
+
+                                        // Adjust selection after deletion
+                                        if selected_idx > 0 {
+                                            list_state.select(Some(selected_idx - 1));
+                                        } else if filtered_downloads.len() > 1 {
+                                            list_state.select(Some(0));
+                                        } else {
+                                            list_state.select(None);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        KeyAction::PurgeCompleted => {
+                            if current_tab == 2 {
+                                // Only allow purging when on Completed tab
+                                let dm = download_manager.clone();
+                                let status_msg = status_message.clone();
+
+                                tokio::task::block_in_place(|| {
+                                    tokio::runtime::Handle::current().block_on(async {
+                                        match dm.purge_completed().await {
+                                            Ok(count) => {
+                                                *status_msg.write().await = format!(
+                                                    "Purged {} completed download(s)",
+                                                    count
+                                                );
+                                            }
+                                            Err(e) => {
+                                                *status_msg.write().await =
+                                                    format!("Purge failed: {}", e);
+                                            }
+                                        }
+                                    })
+                                });
+
+                                list_state.select(None);
+                            } else {
+                                *status_message.write().await =
+                                    "Switch to Completed tab to purge".to_string();
+                            }
+                        }
+                        KeyAction::ClearAll => {
+                            input_handler.buffer.clear();
+                        }
                         KeyAction::None => {}
                     }
                 }
@@ -347,10 +340,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 _ => {}
             }
         }
-        url_input = input_handler.get_input().to_string();
-        input_mode = input_handler.mode;
+
+        // Clear status message after 3 seconds
+        let status_msg_clone = status_message.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+            status_msg_clone.write().await.clear();
+        });
     }
 
+    // Cleanup
+    download_manager.shutdown().await?;
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;

@@ -1,7 +1,8 @@
-use crate::InputMode;
+use crate::models::InputMode;
 use crossterm::event::KeyModifiers;
 
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
 pub enum KeyAction {
     // Normal mode actions
     EnterEditMode,
@@ -9,6 +10,10 @@ pub enum KeyAction {
     SelectTab(usize),
     MoveUp,
     MoveDown,
+    PauseResume,
+    Delete,
+    DeleteFile,
+    PurgeCompleted,
 
     // Editing mode actions
     SubmitInput,
@@ -43,14 +48,22 @@ impl InputHandler {
     pub fn handle_normal_mode(&mut self, key: &crossterm::event::KeyEvent) -> KeyAction {
         use crossterm::event::KeyCode;
 
+        // Check for Shift+Delete to delete file
+        if key.code == KeyCode::Delete && key.modifiers.contains(KeyModifiers::SHIFT) {
+            return KeyAction::DeleteFile;
+        }
+
         match key.code {
-            KeyCode::Char('i') => KeyAction::EnterEditMode,
-            KeyCode::Char('q') => KeyAction::Quit,
+            KeyCode::Char('i') | KeyCode::Char('I') => KeyAction::EnterEditMode,
+            KeyCode::Char('q') | KeyCode::Char('Q') => KeyAction::Quit,
             KeyCode::Char('1') => KeyAction::SelectTab(0),
             KeyCode::Char('2') => KeyAction::SelectTab(1),
             KeyCode::Char('3') => KeyAction::SelectTab(2),
-            KeyCode::Up => KeyAction::MoveUp,
-            KeyCode::Down => KeyAction::MoveDown,
+            KeyCode::Up | KeyCode::Char('k') => KeyAction::MoveUp,
+            KeyCode::Down | KeyCode::Char('j') => KeyAction::MoveDown,
+            KeyCode::Char(' ') | KeyCode::Char('p') | KeyCode::Char('P') => KeyAction::PauseResume,
+            KeyCode::Char('d') | KeyCode::Char('D') => KeyAction::Delete,
+            KeyCode::Char('x') | KeyCode::Char('X') => KeyAction::PurgeCompleted,
             _ => KeyAction::None,
         }
     }
