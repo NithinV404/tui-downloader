@@ -1,13 +1,15 @@
 //! Input field widget for URL/file path entry
 
 use crate::models::InputMode;
-use crate::ui::theme::Styles;
+use crate::ui::theme::Theme;
 use crate::ui::utils::truncate_text;
 use ratatui::{
-    Frame,
     layout::Rect,
+    style::{Modifier, Style},
+    symbols::border,
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph},
+    Frame,
 };
 
 /// Render the input field widget
@@ -18,38 +20,61 @@ use ratatui::{
 /// * `text` - Current input text
 /// * `mode` - Current input mode (Normal/Editing)
 pub fn render(f: &mut Frame, area: Rect, text: &str, mode: InputMode) {
-    let (border_style, title) = match mode {
-        InputMode::Editing => (
-            Styles::border_focused(),
-            "📥 Add Download (Enter: submit │ Esc: cancel)",
-        ),
-        InputMode::Normal => (Styles::border(), "📥 Add Download (press 'i')"),
+    let is_editing = mode == InputMode::Editing;
+
+    let border_style = if is_editing {
+        Style::default().fg(Theme::BORDER_FOCUSED)
+    } else {
+        Style::default().fg(Theme::BORDER)
     };
 
+    let prefix = if is_editing { ">> " } else { "   " };
+
     // Show placeholder or actual text
-    let display_text = if text.is_empty() && mode == InputMode::Editing {
-        Line::from(vec![Span::styled(
-            "URL, magnet link, or .torrent/.metalink file path",
-            Styles::text_muted(),
-        )])
+    let display_text = if text.is_empty() && is_editing {
+        Line::from(vec![
+            Span::styled(
+                prefix,
+                Style::default()
+                    .fg(Theme::HIGHLIGHT)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "URL, magnet link, or .torrent/.metalink file path",
+                Style::default().fg(Theme::TEXT_MUTED),
+            ),
+            Span::styled(
+                "_",
+                Style::default()
+                    .fg(Theme::HIGHLIGHT)
+                    .add_modifier(Modifier::SLOW_BLINK),
+            ), // Cursor
+        ])
     } else if text.is_empty() {
-        Line::from(vec![Span::styled(
-            "Ready to download",
-            Styles::text_muted(),
-        )])
+        Line::from(vec![
+            Span::styled(prefix, Style::default().fg(Theme::TEXT_MUTED)),
+            Span::styled("Press ", Style::default().fg(Theme::TEXT_MUTED)),
+            Span::styled(
+                "i",
+                Style::default()
+                    .fg(Theme::HIGHLIGHT)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" to add a download", Style::default().fg(Theme::TEXT_MUTED)),
+        ])
     } else {
         // Validate and colorize input
         let text_style = if is_valid_input(text) {
-            Styles::success()
-        } else if mode == InputMode::Editing {
-            Styles::warning()
+            Style::default().fg(Theme::SUCCESS)
+        } else if is_editing {
+            Style::default().fg(Theme::WARNING)
         } else {
-            Styles::text()
+            Style::default().fg(Theme::CMD_COLOR)
         };
 
         // Truncate long URLs to prevent performance issues
-        // Available width = area width - borders (2) - padding (2) = width - 4
-        let max_width = area.width.saturating_sub(4) as usize;
+        // Available width = area width - borders (2) - prefix (3) - cursor (1) = width - 6
+        let max_width = area.width.saturating_sub(7) as usize;
         let display_str = if text.len() > max_width {
             let truncated = truncate_text(text, max_width.saturating_sub(3));
             format!("{}...", truncated)
@@ -57,13 +82,43 @@ pub fn render(f: &mut Frame, area: Rect, text: &str, mode: InputMode) {
             text.to_string()
         };
 
-        Line::from(vec![Span::styled(display_str, text_style)])
+        let mut spans = vec![
+            Span::styled(
+                prefix,
+                if is_editing {
+                    Style::default()
+                        .fg(Theme::HIGHLIGHT)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Theme::TEXT_MUTED)
+                },
+            ),
+            Span::styled(display_str, text_style),
+        ];
+
+        // Add cursor when editing
+        if is_editing {
+            spans.push(Span::styled(
+                "_",
+                Style::default()
+                    .fg(Theme::HIGHLIGHT)
+                    .add_modifier(Modifier::SLOW_BLINK),
+            ));
+        }
+
+        Line::from(spans)
+    };
+
+    let title = if is_editing {
+        " Add Download [Enter: submit | Esc: cancel] "
+    } else {
+        " Add Download "
     };
 
     let input_field = Paragraph::new(display_text).block(
         Block::default()
             .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
+            .border_set(border::ROUNDED)
             .title(title)
             .border_style(border_style),
     );

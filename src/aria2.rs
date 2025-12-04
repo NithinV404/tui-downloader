@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -25,6 +25,17 @@ pub struct Aria2Status {
     #[serde(rename = "errorMessage")]
     pub error_message: Option<String>,
     pub files: Option<Vec<Aria2File>>,
+    pub bittorrent: Option<BitTorrentInfo>,
+    #[serde(rename = "numSeeders")]
+    pub num_seeders: Option<String>,
+    #[serde(rename = "numPeers")]
+    pub num_peers: Option<String>,
+    pub seeder: Option<String>,
+    /// Hexadecimal representation of download progress by piece
+    pub bitfield: Option<String>,
+    /// Total number of pieces
+    #[serde(rename = "numPieces")]
+    pub num_pieces: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +53,24 @@ pub struct Aria2File {
 pub struct FileUri {
     pub uri: String,
     pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BitTorrentInfo {
+    #[serde(rename = "announceList")]
+    pub announce_list: Option<Vec<Vec<String>>>,
+    pub comment: Option<String>,
+    #[serde(rename = "creationDate")]
+    pub creation_date: Option<u64>,
+    pub mode: Option<String>,
+    pub info: Option<BitTorrentMetaInfo>,
+    #[serde(rename = "numSeeders", default)]
+    pub num_seeders: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BitTorrentMetaInfo {
+    pub name: Option<String>,
 }
 
 pub struct Aria2Manager {
@@ -215,7 +244,13 @@ impl Aria2Manager {
                         "connections",
                         "errorCode",
                         "errorMessage",
-                        "files"
+                        "files",
+                        "bittorrent",
+                        "numSeeders",
+                        "numPeers",
+                        "seeder",
+                        "bitfield",
+                        "numPieces"
                     ]),
                 ],
             )
@@ -246,7 +281,13 @@ impl Aria2Manager {
                     "connections",
                     "errorCode",
                     "errorMessage",
-                    "files"
+                    "files",
+                    "bittorrent",
+                    "numSeeders",
+                    "numPeers",
+                    "seeder",
+                    "bitfield",
+                    "numPieces"
                 ])],
             )
             .await?;
@@ -275,7 +316,13 @@ impl Aria2Manager {
                         "connections",
                         "errorCode",
                         "errorMessage",
-                        "files"
+                        "files",
+                        "bittorrent",
+                        "numSeeders",
+                        "numPeers",
+                        "seeder",
+                        "bitfield",
+                        "numPieces"
                     ]),
                 ],
             )
@@ -305,7 +352,13 @@ impl Aria2Manager {
                         "connections",
                         "errorCode",
                         "errorMessage",
-                        "files"
+                        "files",
+                        "bittorrent",
+                        "numSeeders",
+                        "numPeers",
+                        "seeder",
+                        "bitfield",
+                        "numPieces"
                     ]),
                 ],
             )
@@ -378,6 +431,79 @@ impl Aria2Manager {
     /// Get aria2 version
     pub async fn get_version(&self) -> Result<Value, Box<dyn std::error::Error>> {
         self.call_method("aria2.getVersion", vec![]).await
+    }
+
+    /// Set a global option
+    pub async fn set_global_option(
+        &self,
+        key: &str,
+        value: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let options = json!({ key: value });
+        let result = self
+            .call_method("aria2.changeGlobalOption", vec![options])
+            .await?;
+        Ok(result.as_str().unwrap_or("OK").to_string())
+    }
+
+    /// Get global options
+    pub async fn get_global_option(&self) -> Result<Value, Box<dyn std::error::Error>> {
+        self.call_method("aria2.getGlobalOption", vec![]).await
+    }
+
+    /// Change position of a download in the queue
+    /// how can be "POS_SET", "POS_CUR", or "POS_END"
+    pub async fn change_position(
+        &self,
+        gid: &str,
+        pos: i32,
+        how: &str,
+    ) -> Result<i32, Box<dyn std::error::Error>> {
+        let result = self
+            .call_method(
+                "aria2.changePosition",
+                vec![json!(gid), json!(pos), json!(how)],
+            )
+            .await?;
+        Ok(result.as_i64().unwrap_or(0) as i32)
+    }
+
+    /// Get peers for a bittorrent download
+    pub async fn get_peers(&self, gid: &str) -> Result<Value, Box<dyn std::error::Error>> {
+        self.call_method("aria2.getPeers", vec![json!(gid)]).await
+    }
+
+    /// Get servers for a download (for HTTP/FTP)
+    pub async fn get_servers(&self, gid: &str) -> Result<Value, Box<dyn std::error::Error>> {
+        self.call_method("aria2.getServers", vec![json!(gid)]).await
+    }
+
+    /// Set options for a specific download
+    pub async fn change_option(
+        &self,
+        gid: &str,
+        options: Value,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let result = self
+            .call_method("aria2.changeOption", vec![json!(gid), options])
+            .await?;
+        Ok(result.as_str().unwrap_or("OK").to_string())
+    }
+
+    /// Get options for a specific download
+    pub async fn get_option(&self, gid: &str) -> Result<Value, Box<dyn std::error::Error>> {
+        self.call_method("aria2.getOption", vec![json!(gid)]).await
+    }
+
+    /// Get session info
+    pub async fn get_session_info(&self) -> Result<Value, Box<dyn std::error::Error>> {
+        self.call_method("aria2.getSessionInfo", vec![]).await
+    }
+
+    /// Save session to file
+    pub async fn save_session(&self) -> Result<String, Box<dyn std::error::Error>> {
+        let result = self.call_method("aria2.saveSession", vec![]).await?;
+        Ok(result.as_str().unwrap_or("OK").to_string())
     }
 
     /// Shutdown aria2c

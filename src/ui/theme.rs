@@ -6,38 +6,45 @@ use ratatui::style::{Color, Modifier, Style};
 pub struct Theme;
 
 impl Theme {
-    // Primary colors - Modern, appealing palette
+    // Primary colors
     #[allow(dead_code)]
-    pub const PRIMARY: Color = Color::Rgb(139, 233, 253); // Soft cyan
-    pub const SECONDARY: Color = Color::Rgb(255, 199, 119); // Warm amber
-    pub const SUCCESS: Color = Color::Rgb(158, 206, 106); // Soft green
-    pub const WARNING: Color = Color::Rgb(255, 199, 119); // Warm amber
-    pub const ERROR: Color = Color::Rgb(255, 117, 127); // Soft red
-    pub const INFO: Color = Color::Rgb(130, 170, 255); // Soft blue
+    pub const PRIMARY: Color = Color::Rgb(139, 233, 253);
+    pub const SECONDARY: Color = Color::Rgb(255, 255, 85);
+    pub const SUCCESS: Color = Color::Rgb(5, 255, 55);
+    pub const WARNING: Color = Color::Rgb(255, 199, 119);
+    pub const ERROR: Color = Color::Rgb(199, 55, 44);
+    pub const INFO: Color = Color::LightBlue;
 
-    // UI element colors - Subtle and elegant
-    pub const BORDER: Color = Color::Rgb(100, 100, 120); // Muted gray-blue
-    pub const BORDER_FOCUSED: Color = Color::Rgb(139, 233, 253); // Soft cyan
-    pub const TEXT: Color = Color::Rgb(230, 230, 240); // Soft white
-    pub const TEXT_MUTED: Color = Color::Rgb(150, 150, 160); // Medium gray
+    // UI element colors
+    pub const BORDER: Color = Color::Gray;
+    pub const BORDER_FOCUSED: Color = Color::LightBlue;
+    pub const TEXT: Color = Color::Rgb(204, 224, 208);
+    pub const TEXT_MUTED: Color = Color::DarkGray;
     pub const BACKGROUND: Color = Color::Black;
 
-    // Download status colors - Vibrant but not harsh
-    pub const STATUS_ACTIVE: Color = Color::Rgb(158, 206, 106); // Soft green
-    pub const STATUS_PAUSED: Color = Color::Rgb(255, 199, 119); // Warm amber
-    pub const STATUS_WAITING: Color = Color::Rgb(139, 233, 253); // Soft cyan
-    pub const STATUS_COMPLETE: Color = Color::Rgb(130, 170, 255); // Soft blue
-    pub const STATUS_ERROR: Color = Color::Rgb(255, 117, 127); // Soft red
-    pub const STATUS_IDLE: Color = Color::Rgb(150, 150, 160); // Medium gray
+    // Download status colors
+    pub const STATUS_ACTIVE: Color = Color::Rgb(5, 255, 55);
+    pub const STATUS_PAUSED: Color = Color::Rgb(255, 255, 85);
+    pub const STATUS_WAITING: Color = Color::LightBlue;
+    pub const STATUS_COMPLETE: Color = Color::Blue;
+    pub const STATUS_ERROR: Color = Color::Rgb(199, 55, 44);
+    #[allow(dead_code)]
+    pub const STATUS_IDLE: Color = Color::DarkGray;
 
-    // Progress colors - Smooth gradients
-    pub const PROGRESS_ACTIVE: Color = Color::Rgb(158, 206, 106); // Soft green
-    pub const PROGRESS_PAUSED: Color = Color::Rgb(255, 199, 119); // Warm amber
-    pub const PROGRESS_COMPLETE: Color = Color::Rgb(130, 170, 255); // Soft blue
+    // Progress colors
+    #[allow(dead_code)]
+    pub const PROGRESS_ACTIVE: Color = Color::Rgb(5, 255, 55);
+    #[allow(dead_code)]
+    pub const PROGRESS_PAUSED: Color = Color::Rgb(255, 255, 85);
+    #[allow(dead_code)]
+    pub const PROGRESS_COMPLETE: Color = Color::Blue;
 
-    // Highlight colors - Eye-catching but pleasant
-    pub const HIGHLIGHT: Color = Color::Rgb(255, 199, 119); // Warm amber
-    pub const SELECTED: Color = Color::Rgb(139, 233, 253); // Soft cyan
+    // Highlight colors
+    pub const HIGHLIGHT: Color = Color::Rgb(255, 255, 85);
+    pub const SELECTED: Color = Color::LightBlue;
+
+    // Category colors
+    pub const CMD_COLOR: Color = Color::Rgb(204, 224, 208);
 }
 
 /// Common styles used throughout the application
@@ -95,12 +102,12 @@ impl Styles {
         Style::default().fg(Theme::INFO)
     }
 
-    /// Border style - Subtle and less contrasted
+    /// Border style
     pub fn border() -> Style {
         Style::default().fg(Theme::BORDER)
     }
 
-    /// Focused border style - Highlighted but not harsh
+    /// Focused border style
     pub fn border_focused() -> Style {
         Style::default()
             .fg(Theme::BORDER_FOCUSED)

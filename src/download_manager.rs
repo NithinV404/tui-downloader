@@ -1,5 +1,5 @@
 use crate::aria2::{Aria2Manager, Aria2Status};
-use crate::models::{Download, DownloadType};
+use crate::models::{Download, DownloadType, GlobalStats};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -10,6 +10,7 @@ pub struct DownloadManager {
     aria2: Arc<Aria2Manager>,
     downloads: Arc<RwLock<HashMap<String, Download>>>,
     deleted_gids: Arc<RwLock<HashSet<String>>>, // Track deleted GIDs to prevent re-adding
+    global_stats: Arc<RwLock<GlobalStats>>,
 }
 
 #[allow(dead_code)]
@@ -19,11 +20,13 @@ impl DownloadManager {
         let aria2 = Arc::new(Aria2Manager::new().await?);
         let downloads = Arc::new(RwLock::new(HashMap::new()));
         let deleted_gids = Arc::new(RwLock::new(HashSet::new()));
+        let global_stats = Arc::new(RwLock::new(GlobalStats::default()));
 
         Ok(Self {
             aria2,
             downloads,
             deleted_gids,
+            global_stats,
         })
     }
 
@@ -68,11 +71,36 @@ impl DownloadManager {
             connections: 0,
             file_path: None,
             error_message: None,
+            added_at: std::time::Instant::now(),
+            seeds: 0,
+            peers: 0,
+            bitfield: None,
+            num_pieces: 0,
         };
 
         self.downloads.write().await.insert(gid.clone(), download);
 
         Ok(gid)
+    }
+
+    /// Retry a failed download by re-adding it
+    pub async fn retry_download(&self, gid: &str) -> Result<String, Box<dyn std::error::Error>> {
+        let download = self.downloads.read().await.get(gid).cloned();
+
+        if let Some(download) = download {
+            if let Some(url) = &download.url {
+                // Remove the old download
+                self.remove_download(gid).await?;
+
+                // Add it again
+                let new_gid = self.add_download(url).await?;
+                Ok(new_gid)
+            } else {
+                Err("No URL available for retry".into())
+            }
+        } else {
+            Err("Download not found".into())
+        }
     }
 
     /// Update download information from aria2c
@@ -113,7 +141,36 @@ impl DownloadManager {
             }
         }
 
+        // Update global stats
+        self.update_global_stats(&downloads).await;
+
         Ok(())
+    }
+
+    async fn update_global_stats(&self, downloads: &HashMap<String, Download>) {
+        let mut stats = GlobalStats::default();
+
+        for download in downloads.values() {
+            match download.status.as_str() {
+                "ACTIVE" => {
+                    stats.num_active += 1;
+                    // Parse speed strings to get total speeds
+                    if let Some(speed) = download.speed_history.last() {
+                        stats.download_speed += speed;
+                    }
+                    if let Some(speed) = download.upload_speed_history.last() {
+                        stats.upload_speed += speed;
+                    }
+                }
+                "WAITING" | "PAUSED" => stats.num_waiting += 1,
+                "COMPLETE" => stats.num_stopped += 1,
+                "ERROR" => stats.num_stopped += 1,
+                _ => {}
+            }
+        }
+
+        stats.num_stopped_total = downloads.len() as u32;
+        *self.global_stats.write().await = stats;
     }
 
     async fn update_download_from_status(
@@ -148,6 +205,24 @@ impl DownloadManager {
 
             // Update error message if present
             download.error_message = status.error_message.clone();
+
+            // Update seeds and peers from bittorrent info if available
+            if let Some(ref bt_info) = status.bittorrent {
+                download.seeds = bt_info.num_seeders.parse().unwrap_or(0);
+            }
+            download.peers = status
+                .num_peers
+                .as_ref()
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(0);
+
+            // Update bitfield and piece count for piece visualization
+            download.bitfield = status.bitfield.clone();
+            download.num_pieces = status
+                .num_pieces
+                .as_ref()
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(0);
 
             // Update download speed history for graphing
             download.speed_history.push(speed);
@@ -199,6 +274,29 @@ impl DownloadManager {
                 }
             }
 
+            // Determine download type from bittorrent info
+            let download_type = if status.bittorrent.is_some() {
+                DownloadType::Torrent
+            } else {
+                DownloadType::Http
+            };
+
+            let seeds = status
+                .bittorrent
+                .as_ref()
+                .map(|bt| bt.num_seeders.parse().unwrap_or(0))
+                .unwrap_or(0);
+            let peers = status
+                .num_peers
+                .as_ref()
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(0);
+            let num_pieces = status
+                .num_pieces
+                .as_ref()
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(0);
+
             let download = Download {
                 gid: Some(status.gid.clone()),
                 name,
@@ -212,13 +310,18 @@ impl DownloadManager {
                 status: status.status.to_uppercase(),
                 total_length: total,
                 completed_length: completed,
-                download_type: DownloadType::Http,
+                download_type,
                 speed_history: vec![speed],
                 upload_speed: format_speed(upload_speed),
                 upload_speed_history: vec![upload_speed],
                 connections: status.connections.parse().unwrap_or(0),
                 file_path,
                 error_message: status.error_message.clone(),
+                added_at: std::time::Instant::now(),
+                seeds,
+                peers,
+                bitfield: status.bitfield.clone(),
+                num_pieces,
             };
 
             downloads.insert(status.gid, download);
@@ -261,6 +364,11 @@ impl DownloadManager {
             .filter(|d| d.progress >= 1.0 || d.status == "COMPLETE")
             .cloned()
             .collect()
+    }
+
+    /// Get global statistics
+    pub async fn get_global_stats(&self) -> GlobalStats {
+        self.global_stats.read().await.clone()
     }
 
     /// Pause a download
@@ -350,6 +458,71 @@ impl DownloadManager {
         } else {
             Err("Download not found".into())
         }
+    }
+
+    /// Set global download speed limit (0 = unlimited)
+    pub async fn set_download_speed_limit(
+        &self,
+        limit: u64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.aria2
+            .set_global_option("max-overall-download-limit", &format!("{}", limit))
+            .await?;
+        Ok(())
+    }
+
+    /// Set global upload speed limit (0 = unlimited)
+    pub async fn set_upload_speed_limit(
+        &self,
+        limit: u64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.aria2
+            .set_global_option("max-overall-upload-limit", &format!("{}", limit))
+            .await?;
+        Ok(())
+    }
+
+    /// Get current speed limits
+    pub async fn get_speed_limits(&self) -> Result<(u64, u64), Box<dyn std::error::Error>> {
+        let options = self.aria2.get_global_option().await?;
+
+        let download_limit = options
+            .get("max-overall-download-limit")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+
+        let upload_limit = options
+            .get("max-overall-upload-limit")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+
+        Ok((download_limit, upload_limit))
+    }
+
+    /// Move download up in queue
+    pub async fn move_up(&self, gid: &str) -> Result<(), Box<dyn std::error::Error>> {
+        self.aria2.change_position(gid, -1, "POS_CUR").await?;
+        Ok(())
+    }
+
+    /// Move download down in queue
+    pub async fn move_down(&self, gid: &str) -> Result<(), Box<dyn std::error::Error>> {
+        self.aria2.change_position(gid, 1, "POS_CUR").await?;
+        Ok(())
+    }
+
+    /// Pause all downloads
+    pub async fn pause_all(&self) -> Result<(), Box<dyn std::error::Error>> {
+        self.aria2.pause_all().await?;
+        Ok(())
+    }
+
+    /// Resume all downloads
+    pub async fn resume_all(&self) -> Result<(), Box<dyn std::error::Error>> {
+        self.aria2.unpause_all().await?;
+        Ok(())
     }
 
     /// Shutdown aria2c
