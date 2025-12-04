@@ -1,11 +1,13 @@
 //! Popup/Modal widget for confirmations and warnings
 
-use crate::ui::theme::Styles;
+use crate::ui::theme::Theme;
 use ratatui::{
-    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
+    style::{Modifier, Style},
+    symbols::border,
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    Frame,
 };
 
 /// Type of popup to display
@@ -42,19 +44,19 @@ pub fn render(
     f.render_widget(Clear, popup_area);
 
     // Determine colors based on popup type
-    let (border_style, icon) = match popup_type {
-        PopupType::Confirmation => (Styles::warning(), "⚠"),
-        PopupType::Warning => (Styles::warning(), "⚠"),
-        PopupType::Error => (Styles::error(), "✗"),
-        PopupType::Info => (Styles::info(), "ℹ"),
+    let (border_color, icon) = match popup_type {
+        PopupType::Confirmation => (Theme::WARNING, "[!]"),
+        PopupType::Warning => (Theme::WARNING, "[!]"),
+        PopupType::Error => (Theme::ERROR, "[x]"),
+        PopupType::Info => (Theme::INFO, "[i]"),
     };
 
-    // Create the popup block
+    // Create the popup block with rounded borders
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_set(border::ROUNDED)
         .title(format!(" {} {} ", icon, title))
-        .border_style(border_style);
+        .border_style(Style::default().fg(border_color));
 
     let inner = block.inner(popup_area);
     f.render_widget(block, popup_area);
@@ -78,7 +80,12 @@ pub fn render(
     // Render message
     let message_lines: Vec<Line> = message
         .lines()
-        .map(|line| Line::from(vec![Span::styled(line, Styles::text())]))
+        .map(|line| {
+            Line::from(vec![Span::styled(
+                line,
+                Style::default().fg(Theme::CMD_COLOR),
+            )])
+        })
         .collect();
 
     let message_paragraph = Paragraph::new(message_lines)
@@ -90,18 +97,27 @@ pub fn render(
     // Render buttons if needed
     if show_buttons {
         let buttons = Line::from(vec![
-            Span::styled("[", Styles::text_muted()),
-            Span::styled("Y", Styles::success()),
-            Span::styled("]", Styles::text_muted()),
-            Span::styled(" Yes  ", Styles::text()),
-            Span::styled("[", Styles::text_muted()),
-            Span::styled("N", Styles::error()),
-            Span::styled("]", Styles::text_muted()),
-            Span::styled(" No  ", Styles::text()),
-            Span::styled("[", Styles::text_muted()),
-            Span::styled("Esc", Styles::text_muted()),
-            Span::styled("]", Styles::text_muted()),
-            Span::styled(" Cancel", Styles::text()),
+            Span::styled(
+                "Y",
+                Style::default()
+                    .fg(Theme::SUCCESS)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" yes  ", Style::default().fg(Theme::TEXT_MUTED)),
+            Span::styled(
+                "N",
+                Style::default()
+                    .fg(Theme::ERROR)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" no  ", Style::default().fg(Theme::TEXT_MUTED)),
+            Span::styled(
+                "Esc",
+                Style::default()
+                    .fg(Theme::SECONDARY)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" cancel", Style::default().fg(Theme::TEXT_MUTED)),
         ]);
 
         let buttons_paragraph = Paragraph::new(buttons).alignment(Alignment::Center);
@@ -135,9 +151,9 @@ pub fn render_size_warning(
     // Create the warning block
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .title(" ⚠ Terminal Too Small ")
-        .border_style(Styles::warning());
+        .border_set(border::ROUNDED)
+        .title(" [!] Terminal Too Small ")
+        .border_style(Style::default().fg(Theme::WARNING));
 
     let inner = block.inner(popup_area);
     f.render_widget(block, popup_area);
@@ -147,30 +163,44 @@ pub fn render_size_warning(
         Line::from(""),
         Line::from(vec![Span::styled(
             "Terminal size is too small!",
-            Styles::warning(),
+            Style::default()
+                .fg(Theme::WARNING)
+                .add_modifier(Modifier::BOLD),
         )]),
         Line::from(""),
         Line::from(vec![
-            Span::styled("Current: ", Styles::text_muted()),
+            Span::styled("Current: ", Style::default().fg(Theme::TEXT_MUTED)),
             Span::styled(
                 format!("{}x{}", current_width, current_height),
-                Styles::error(),
+                Style::default()
+                    .fg(Theme::ERROR)
+                    .add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
-            Span::styled("Required: ", Styles::text_muted()),
-            Span::styled(format!("{}x{}", min_width, min_height), Styles::success()),
+            Span::styled("Required: ", Style::default().fg(Theme::TEXT_MUTED)),
+            Span::styled(
+                format!("{}x{}", min_width, min_height),
+                Style::default()
+                    .fg(Theme::SUCCESS)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]),
         Line::from(""),
         Line::from(vec![Span::styled(
             "Please resize your terminal",
-            Styles::text_muted(),
+            Style::default().fg(Theme::TEXT_MUTED),
         )]),
         Line::from(""),
         Line::from(vec![
-            Span::styled("Press ", Styles::text_muted()),
-            Span::styled("Q", Styles::error()),
-            Span::styled(" to quit anyway", Styles::text_muted()),
+            Span::styled("Press ", Style::default().fg(Theme::TEXT_MUTED)),
+            Span::styled(
+                "Q",
+                Style::default()
+                    .fg(Theme::ERROR)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" to quit anyway", Style::default().fg(Theme::TEXT_MUTED)),
         ]),
     ];
 

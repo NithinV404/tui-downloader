@@ -1,11 +1,12 @@
 //! Status bar widget for displaying temporary status messages
 
-use crate::ui::theme::Styles;
+use crate::ui::theme::Theme;
 use ratatui::{
-    Frame,
     layout::{Alignment, Rect},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Paragraph},
+    widgets::Paragraph,
+    Frame,
 };
 
 /// Render the status bar widget
@@ -23,73 +24,79 @@ pub fn render(f: &mut Frame, area: Rect, message: &str) {
 
     let formatted_message = Line::from(vec![
         Span::styled(icon, style),
-        Span::raw(" "),
+        Span::styled(" ", Style::default().fg(Theme::TEXT_MUTED)),
         Span::styled(message, style),
     ]);
 
-    let widget = Paragraph::new(formatted_message)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .title("━━ Status ━━")
-                .border_style(style),
-        )
-        .alignment(Alignment::Center);
+    let widget = Paragraph::new(formatted_message).alignment(Alignment::Center);
 
     f.render_widget(widget, area);
 }
 
 /// Determine the appropriate style and icon based on message content
-fn determine_message_style(message: &str) -> (ratatui::style::Style, &'static str) {
+fn determine_message_style(message: &str) -> (Style, &'static str) {
     let lower = message.to_lowercase();
 
     if lower.contains("error") || lower.contains("failed") {
-        (Styles::error(), "✗")
+        (
+            Style::default()
+                .fg(Theme::ERROR)
+                .add_modifier(Modifier::BOLD),
+            "[x]",
+        )
     } else if lower.contains("success")
         || lower.contains("added")
         || lower.contains("deleted")
         || lower.contains("purged")
     {
-        (Styles::success(), "✓")
+        (
+            Style::default()
+                .fg(Theme::SUCCESS)
+                .add_modifier(Modifier::BOLD),
+            "[*]",
+        )
     } else if lower.contains("warning") {
-        (Styles::warning(), "⚠")
+        (
+            Style::default()
+                .fg(Theme::WARNING)
+                .add_modifier(Modifier::BOLD),
+            "[!]",
+        )
     } else {
-        (Styles::info(), "ℹ")
+        (Style::default().fg(Theme::INFO), "[i]")
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::theme::Theme;
 
     #[test]
     fn test_error_message_style() {
         let (style, icon) = determine_message_style("Error: download failed");
         assert_eq!(style.fg, Some(Theme::ERROR));
-        assert_eq!(icon, "✗");
+        assert_eq!(icon, "[x]");
     }
 
     #[test]
     fn test_success_message_style() {
         let (style, icon) = determine_message_style("Successfully added download");
         assert_eq!(style.fg, Some(Theme::SUCCESS));
-        assert_eq!(icon, "✓");
+        assert_eq!(icon, "[*]");
     }
 
     #[test]
     fn test_warning_message_style() {
         let (style, icon) = determine_message_style("Warning: low disk space");
         assert_eq!(style.fg, Some(Theme::WARNING));
-        assert_eq!(icon, "⚠");
+        assert_eq!(icon, "[!]");
     }
 
     #[test]
     fn test_info_message_style() {
         let (style, icon) = determine_message_style("Download in progress");
         assert_eq!(style.fg, Some(Theme::INFO));
-        assert_eq!(icon, "ℹ");
+        assert_eq!(icon, "[i]");
     }
 
     #[test]
