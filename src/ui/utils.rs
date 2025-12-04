@@ -128,6 +128,8 @@ mod tests {
             connections: 0,
             file_path: None,
             error_message: None,
+            upload_speed: "".to_string(),
+            upload_speed_history: vec![0, 0],
         }
     }
 
