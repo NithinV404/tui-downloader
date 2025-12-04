@@ -2,7 +2,7 @@
 
 A modern terminal-based download manager powered by aria2c.
 
-![TUI Downloader Screenshot](images/Screenshot_20251204_110914.png)
+![TUI Downloader Screenshot](images/Screenshot_20251204_110915.png)
 
 ## Features
 
